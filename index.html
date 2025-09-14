@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>いろでんたく — 完成版</title>
+<style>
+  :root{
+    --bg:#f6f7fb; --card:#ffffff; --border:#e5e7eb; --shadow:0 10px 28px rgba(0,0,0,.08);
+    --gap:12px;
+    --cell:72px;        /* セル一辺（JSで更新） */
+    --colorsW:480px;    /* 左3列の幅（計算値） */
+    --opsW:72px;        /* 右1列の幅＝cell（計算値） */
+    --contentW:720px;   /* 全体幅（計算値） */
+    --r:16px;
+  }
+  *{ box-sizing:border-box }
+  html,body{ height:100% }
+  body{
+    margin:0; background:var(--bg);
+    font-family:ui-sans-serif,"Noto Sans JP",system-ui,-apple-system,Segoe UI,Roboto;
+    display:flex; align-items:center; justify-content:center; padding:16px;
+  }
+  .app{
+    width:min(960px,100%);
+    max-height:calc(100vh - 32px);
+    background:var(--card); border:1px solid var(--border);
+    border-radius:24px; box-shadow:var(--shadow); padding:18px;
+    display:flex; flex-direction:column;
+  }
+
+  .wrap{ width:min(100%, var(--contentW)); margin-inline:auto; }
+
+  /* 表示エリア */
+  .display{
+    width:100%;
+    display:flex; align-items:center; gap:12px; border:1px dashed var(--border);
+    border-radius:16px; background:#fafafa; padding:10px 12px; min-height:70px;
+    overflow-x:auto;
+  }
+  .expr{ display:flex; align-items:center; gap:10px; min-height:42px; }
+  .chip{ width:26px; height:26px; border-radius:8px; border:2px solid rgba(0,0,0,.12);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.5); flex:0 0 auto; }
+  .op{ width:42px; height:42px; border-radius:10px; border:1px solid var(--border);
+    display:grid; place-items:center; font-weight:800; font-size:18px; background:#fff; flex:0 0 auto; }
+  .eq-badge{ width:42px; height:42px; border-radius:10px; border:1px solid var(--border);
+    display:grid; place-items:center; font-weight:900; background:#fff; }
+  .answer{ width:52px; height:52px; border-radius:12px; border:2px solid rgba(0,0,0,.12);
+    background:#ffffff; flex:0 0 auto; }
+
+  /* パッド：左3列（色）＋右1列（操作）を同じセルサイズで */
+  .pad{
+    width:100%;
+    margin-top:14px; display:grid; gap:var(--gap);
+    grid-template-columns: var(--colorsW) var(--opsW);
+    align-items:start;
+  }
+  .colors{
+    display:grid; gap:var(--gap);
+    grid-template-columns: repeat(3, var(--cell));  /* 3列固定 */
+    grid-auto-rows: var(--cell);
+    justify-content:start;
+  }
+  .ops{
+    width:var(--opsW);
+    display:grid; gap:var(--gap);                   /* セル高さ＝cell で色と同じに */
+    grid-auto-rows: var(--cell);
+  }
+
+  button{
+    border:1px solid var(--border); border-radius:var(--r); background:#fff;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    box-shadow:0 2px 0 rgba(0,0,0,.04); transition:transform .02s, box-shadow .18s;
+    min-width:0; min-height:0;
+  }
+  button:active{ transform:translateY(2px); box-shadow:none; }
+  button:focus-visible{
+    outline:3px solid #94a3b8; outline-offset:2px; box-shadow:0 0 0 3px rgba(148,163,184,.35);
+  }
+
+  .b-color{ padding:0; aspect-ratio:1/1; }
+  .b-color > span{
+    display:block; width:70%; height:70%; margin:auto;
+    border-radius:10px; border:2px solid rgba(0,0,0,.12);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.5);
+  }
+  .b-op{ font-size:clamp(16px, 2.2vw, 26px); font-weight:800; background:#fcfcfd; }
+  .b-ac{ background:#fef3f2; font-weight:900; }
+  .b-ce{ background:#fff7ed; font-weight:900; }
+
+  /* ＝ボタン：薄い青の背景＋黒文字（見やすさUP） */
+  .b-eq{
+    background:#e6f2ff;
+    color:#111;
+    font-size:clamp(16px, 2.4vw, 28px);
+    font-weight:900;
+  }
+
+  @keyframes shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
+  .shake{ animation:shake .4s both; }
+  @media (max-width:560px){ :root{ --gap:10px } }
+  .sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+    clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+</style>
+</head>
+<body>
+  <div class="app" role="application" aria-label="いろでんたく（完成）">
+    <div class="wrap">
+      <div class="sr-only" id="live" aria-live="polite" role="status"></div>
+
+      <div class="display" aria-label="しきとこたえ">
+        <div class="expr" id="expr"></div>
+        <div class="eq-badge" aria-hidden="true">=</div>
+        <div class="answer" id="answer" aria-label="こたえ"></div>
+      </div>
+
+      <div class="pad" id="pad">
+        <!-- 左：3×5（色相環→中性色の順） -->
+        <div class="colors" id="colors">
+          <!-- 1段目：黄→黄緑→緑 -->
+          <button class="b-color" data-color="yellow"       aria-label="きいろ"><span style="background:#fdd835"></span></button>
+          <button class="b-color" data-color="yellowgreen"  aria-label="きみどり"><span style="background:#8bc34a"></span></button>
+          <button class="b-color" data-color="green"        aria-label="みどり"><span style="background:#43a047"></span></button>
+          <!-- 2段目：青緑→水色→青 -->
+          <button class="b-color" data-color="teal"         aria-label="あおみどり"><span style="background:#009688"></span></button>
+          <button class="b-color" data-color="cyan"         aria-label="みずいろ"><span style="background:#4fc3f7"></span></button>
+          <button class="b-color" data-color="blue"         aria-label="あお"><span style="background:#1e88e5"></span></button>
+          <!-- 3段目：青紫→紫→マゼンタ -->
+          <button class="b-color" data-color="blueviolet"   aria-label="あおむらさき"><span style="background:#5e60ce"></span></button>
+          <button class="b-color" data-color="purple"       aria-label="むらさき"><span style="background:#8e24aa"></span></button>
+          <button class="b-color" data-color="magenta"      aria-label="マゼンタ"><span style="background:#d81b60"></span></button>
+          <!-- 4段目：桃→赤→橙 -->
+          <button class="b-color" data-color="pink"         aria-label="ももいろ"><span style="background:#f06292"></span></button>
+          <button class="b-color" data-color="red"          aria-label="あか"><span style="background:#e53935"></span></button>
+          <button class="b-color" data-color="orange"       aria-label="だいだい"><span style="background:#fb8c00"></span></button>
+          <!-- 5段目：中性色（茶→白→黒） -->
+          <button class="b-color" data-color="brown"        aria-label="ちゃいろ"><span style="background:#8d6e63"></span></button>
+          <button class="b-color" data-color="white"        aria-label="しろ"><span style="background:#ffffff"></span></button>
+          <button class="b-color" data-color="black"        aria-label="くろ"><span style="background:#111111"></span></button>
+        </div>
+
+        <!-- 右：操作（色と同サイズ・5段。最下段が = ） -->
+        <div class="ops" id="ops">
+          <button class="b-op" data-op="+" aria-label="たす"><span>＋</span></button>
+          <button class="b-op" data-op="-" aria-label="ひく"><span>−</span></button>
+          <button class="b-op b-ac" data-action="ac" aria-label="オールクリア"><span>AC</span></button>
+          <button class="b-op b-ce" data-action="c" aria-label="クリア"><span>C</span></button>
+          <button class="b-eq" data-action="equals" aria-label="イコール"><span>=</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* === パレット（teal / magenta を含む15色） === */
+const Palette = {
+  yellow      :{hex:"#fdd835", ryb:[0.00,1.00,0.00], tint:0.00, shade:0.00},
+  yellowgreen :{hex:"#8bc34a", ryb:[0.00,0.75,0.25], tint:0.00, shade:0.00},
+  green       :{hex:"#43a047", ryb:[0.00,1.00,1.00], tint:0.00, shade:0.05},
+
+  teal        :{hex:"#009688", ryb:[0.00,0.70,0.70], tint:0.00, shade:0.10},
+  cyan        :{hex:"#4fc3f7", ryb:[0.00,0.35,0.65], tint:0.35, shade:0.00},
+  blue        :{hex:"#1e88e5", ryb:[0.00,0.00,1.00], tint:0.00, shade:0.00},
+
+  blueviolet  :{hex:"#5e60ce", ryb:[0.35,0.00,1.00], tint:0.02, shade:0.00},
+  purple      :{hex:"#8e24aa", ryb:[0.85,0.00,1.00], tint:0.00, shade:0.00},
+  magenta     :{hex:"#d81b60", ryb:[1.00,0.00,1.00], tint:0.05, shade:0.00},
+
+  pink        :{hex:"#f06292", ryb:[1.00,0.00,0.00], tint:0.50, shade:0.00},
+  red         :{hex:"#e53935", ryb:[1.00,0.00,0.00], tint:0.00, shade:0.00},
+  orange      :{hex:"#fb8c00", ryb:[1.00,1.00,0.00], tint:0.00, shade:0.00},
+
+  brown       :{hex:"#8d6e63", ryb:[1.00,1.00,1.00], tint:0.00, shade:0.35},
+  white       :{hex:"#ffffff", ryb:[0.00,0.00,0.00], tint:1.00, shade:0.00},
+  black       :{hex:"#111111", ryb:[0.00,0.00,0.00], tint:0.00, shade:1.00},
+};
+
+/* RYB→表示用RGBのアンカー（R・Y・Bの見た目基準） */
+const Rrgb=[229,57,53], Yrgb=[253,216,53], Brgb=[30,136,229];
+const WHITE=[255,255,255], BLACK=[0,0,0];
+
+/* === ユーティリティ === */
+const normOp=(raw)=>{ if(raw==null) return raw; const s=String(raw).replace(/[＋﹢]/g,"+").replace(/[−–—－﹣\-]/g,"-"); return (s==="+"||s==="-" ) ? s : raw; };
+const last = (a)=> a.length ? a[a.length-1] : undefined;
+const clamp01=(v)=> Math.max(0, Math.min(1, v));
+const mix=(a,b,t)=> Math.round(a*(1-t)+b*t);
+const mixRGB=(A,B,t)=> [mix(A[0],B[0],t), mix(A[1],B[1],t), mix(A[2],B[2],t)];
+function blend3(Rc,Yc,Bc,wr,wy,wb){
+  const rr = Math.round(Rc[0]*wr + Yc[0]*wy + Bc[0]*wb);
+  const gg = Math.round(Rc[1]*wr + Yc[1]*wy + Bc[1]*wb);
+  const bb = Math.round(Rc[2]*wr + Yc[2]*wy + Bc[2]*wb);
+  return [rr,gg,bb];
+}
+const rgbToHex=([r,g,b])=> "#"+[r,g,b].map(v=>v.toString(16).padStart(2,"0")).join("");
+
+/* === DOM === */
+const exprEl=document.getElementById("expr");
+const ansSw =document.getElementById("answer");
+const pad   =document.getElementById("pad");
+const colors=document.getElementById("colors");
+const live  =document.getElementById("live");
+const root  =document.documentElement;
+
+let tokens=[];
+
+/* === レイアウト：4列（色×3 + 操作×1）に収まる最大cellを算出 === */
+function fitLayout(){
+  const padRect = pad.getBoundingClientRect();
+  const styles  = getComputedStyle(root);
+  const gap = parseFloat(styles.getPropertyValue('--gap')) || 12;
+
+  const columns = 3;
+  const colorCount = colors.querySelectorAll('.b-color').length; // 15
+  const rows = Math.max(1, Math.ceil(colorCount / columns));
+
+  const availableH = Math.max(220, window.innerHeight - padRect.top - 24);
+
+  // 横方向（右の操作列を含む4列）と、縦方向（rows行）の両制約からcellを決定
+  const padW = pad.clientWidth;
+  const cellByW = Math.floor((padW - gap*3) / 4);
+  const cellByH = Math.floor((availableH - gap*(rows-1)) / rows);
+  const cell = Math.max(52, Math.min(cellByW, cellByH, 140));
+
+  const colorsW = cell*3 + gap*2;
+  const opsW    = cell;
+  const contentW= colorsW + gap + opsW;
+
+  root.style.setProperty('--cell', cell+'px');
+  root.style.setProperty('--colorsW', colorsW+'px');
+  root.style.setProperty('--opsW', opsW+'px');
+  root.style.setProperty('--contentW', contentW+'px');
+}
+window.addEventListener('resize', fitLayout);
+window.addEventListener('orientationchange', fitLayout);
+new ResizeObserver(fitLayout).observe(pad);
+
+/* === 入力処理 === */
+pad.addEventListener("click",(e)=>{
+  const b = e.target.closest("button");
+  if(!b) return;
+  if(b.dataset.color){ pushColor(b.dataset.color); return; }
+  if(b.dataset.op){ pushOp(b.dataset.op); return; }
+  const act = b.dataset.action;
+  if(act==="ac"){ ac(); return; }
+  if(act==="c"){ ce(); return; }
+  if(act==="equals"){ equals(); return; }
+});
+
+function pushColor(key){
+  if(tokens.length && isColor(last(tokens))){ flash(exprEl); say("＋ か ー を"); return; }
+  tokens.push(key); renderExpr();
+}
+function pushOp(opRaw){
+  if(tokens.length===0){ flash(exprEl); say("いろ を さきに"); return; }
+  if(isOp(last(tokens))){ flash(exprEl); say("いろ を えらんで"); return; }
+  tokens.push(normOp(opRaw)); renderExpr();
+}
+function ce(){ if(tokens.length){ tokens.pop(); renderExpr(); } }
+function ac(){ tokens = []; renderExpr(); setAnswer(null); }
+
+/* === 計算（連続 RYB + 白/黒のティント・シェード） === */
+function equals(){
+  if(tokens.length===0){ flash(exprEl); return; }
+  if(isOp(last(tokens))){ flash(exprEl); say("さいごは いろ で"); return; }
+
+  let r=0, y=0, b=0, tintSum=0, shadeSum=0, count=0, i=0;
+
+  let first = Palette[tokens[i++]];
+  r+=first.ryb[0]; y+=first.ryb[1]; b+=first.ryb[2];
+  tintSum+=first.tint; shadeSum+=first.shade; count++;
+
+  while(i<tokens.length){
+    const op = normOp(tokens[i++]);
+    const col = Palette[tokens[i++]];
+    if(op==="+"){
+      r+=col.ryb[0]; y+=col.ryb[1]; b+=col.ryb[2];
+      tintSum+=col.tint; shadeSum+=col.shade; count++;
+    }else if(op==="-" ){
+      r=Math.max(0, r-col.ryb[0]); y=Math.max(0, y-col.ryb[1]); b=Math.max(0, b-col.ryb[2]);
+      tintSum=Math.max(0, tintSum-col.tint); shadeSum=Math.max(0, shadeSum-col.shade);
+      count=Math.max(0, count-1);
+    }
+  }
+
+  const sum = r+y+b;
+  let baseRGB = sum>0 ? blend3(Rrgb, Yrgb, Brgb, r/sum, y/sum, b/sum) : [255,255,255];
+
+  const denom = Math.max(1, count);
+  const shade = clamp01(shadeSum/denom);
+  const tint  = clamp01(tintSum/denom);
+  if(shade>0) baseRGB = mixRGB(baseRGB, BLACK, shade);
+  if(tint >0) baseRGB = mixRGB(baseRGB, WHITE, tint);
+
+  const hex = rgbToHex(baseRGB);
+  setAnswer({hex}); say("こたえ");
+}
+
+/* === 描画 === */
+function renderExpr(){
+  exprEl.innerHTML = "";
+  if(tokens.length===0){
+    const ph=document.createElement("div"); ph.className="op"; ph.style.opacity=.35; ph.textContent="…";
+    exprEl.appendChild(ph); setAnswer(null); return;
+  }
+  for(const t of tokens){
+    if(isOp(t)){
+      const o=document.createElement("div"); o.className="op";
+      o.textContent = (normOp(t)==="-") ? "−" : "＋";
+      exprEl.appendChild(o);
+    }else{
+      const c=document.createElement("div"); c.className="chip"; c.style.background=Palette[t].hex;
+      exprEl.appendChild(c);
+    }
+  }
+}
+function setAnswer(color){ ansSw.style.background = color ? color.hex : "#ffffff"; }
+
+/* === ユーティリティ === */
+const isOp =(t)=>{ const x=normOp(t); return x==="+" || x==="-" ; };
+const isColor=(t)=> Boolean(Palette[t]);
+function flash(el){ el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); }
+function say(text){ live.textContent = text; }
+
+/* 初期化 */
+fitLayout();
+renderExpr(); setAnswer(null);
+</script>
+</body>
+</html>
